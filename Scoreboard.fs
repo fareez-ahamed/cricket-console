@@ -1,8 +1,14 @@
+module Obj
 
-// type Scoreboard(teamA: string, teamB: string) =
-//     let teamA = teamA
-//     let teamB = teamB
-//     member score = 0
+type ScoreBoard(teamA: string, teamB: string) =
 
-//     member s.IncrementScore n =
-//         s.score <- s.score + n
+    let mutable teamA = teamA
+    let mutable teamB = teamB
+    let mutable score = 0
+
+    member s.TeamA with get() = teamA and set v = teamA <- v
+    member s.TeamB with get() = teamB and set v = teamB <- v
+    member s.Score with get() = score and set v = score <- v
+
+    member s.IncrementScore n =
+        s.Score <- s.Score + n
