@@ -47,12 +47,15 @@ type BowlingDetail = {
     Maiden: int
 }
 
+type BattingTeam = TeamA | TeamB | NotSet
+
 type Innings = {
     Balls: list<Ball>
     Runs: int
     Wickets: int
     Batting: list<BatsmanDetail>
     Bowling: list<BowlingDetail>
+    BattingTeam: BattingTeam
 }
 
 type MatchState = NotStarted | FirstInnings | SecondInnings | Completed
@@ -62,10 +65,7 @@ type Team = {
     Players: list<Player>
 }
 
-type BattingTeam = TeamA | TeamB
-
 type Match = {
-    mutable BattingTeam: BattingTeam
     mutable Overs: int
     mutable TeamA: Team
     mutable TeamB: Team
@@ -75,7 +75,6 @@ type Match = {
 }
 
 let mutable thisMatch : Match = {
-    BattingTeam = TeamA
     Overs = 0
     TeamA = {
         Name = ""
@@ -86,6 +85,7 @@ let mutable thisMatch : Match = {
         Players = []
     }
     FirstInnings = {
+        BattingTeam = NotSet
         Balls = []
         Runs = 0
         Wickets = 0
@@ -93,6 +93,7 @@ let mutable thisMatch : Match = {
         Bowling = []
     }
     SecondInnings = {
+        BattingTeam = NotSet
         Balls = []
         Runs = 0
         Wickets = 0
@@ -163,7 +164,7 @@ let rec readInt label =
         | (false, _) -> printfn "Invalid Number"
                         readInt label
 
-let readOptions (options: list<'a>) : 'a =
+let readOptions label (options: list<'a>) : 'a =
     let optionStr i x = sprintf "Option %d : %A" (i+1) x
     let rec selectOption() =
         options |> List.tryItem ((readInt "Select Option") - 1)
@@ -172,15 +173,30 @@ let readOptions (options: list<'a>) : 'a =
                     | None -> printfn "Invalid Option"
                               selectOption()
     options |> List.mapi optionStr |> List.iter (printfn "%s")
+    printf "%s : " label
     selectOption()
+
+let readTossOutcome() = 
+    readOptions "Who won the toss?" [ TeamA; TeamB ]
      
 let initMatch() =
     let readPlayers() =
         let label i = "Player " + string i
         List.map (label >> readLine) [1..11]
+    let readBatsman() =
+        match thisMatch.FirstInnings.BattingTeam with
+        | TeamA -> readOptions "Face Batsman" thisMatch.TeamA.Players
+        | TeamB -> readOptions "Face Batsman" thisMatch.TeamB.Players
+        | NotSet -> failwith("Team not set")
+    
     thisMatch.TeamA <- { Name = readLine "Team A"; Players = readPlayers() }
     thisMatch.TeamB <- { Name = readLine "Team B"; Players = readPlayers() }
+    thisMatch.Overs <- readInt "Overs"
     thisMatch.State <- FirstInnings
+    thisMatch.FirstInnings <- { thisMatch.FirstInnings with BattingTeam = readTossOutcome() }
+    // thisMatch.FirstInnings <- { thisMatch.FirstInnings with Batting = readBatsman() @ thisMatch.FirstInnings.Batting }
+    
+
 
 let printScore() =
     let scoreStr innings = sprintf "%d/%d" innings.Runs innings.Wickets
@@ -198,7 +214,7 @@ let processCommand cmd =
     | ScoreCommand(scoreCommand) -> processScoreCommand scoreCommand
     | PrintScore -> printScore()
     | InvalidCommand -> printfn "Invalid Command\n"
-    | Test -> printf "%A" <| readOptions([TeamA; TeamB])
+    | Test -> printf "%A" <| readOptions "Which team you support?" [TeamA; TeamB]
 
 [<EntryPoint>]
 let main argv =
