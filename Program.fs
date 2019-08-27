@@ -2,7 +2,7 @@
 open System
 open Obj
 
-type Overs = uint8 * uint8
+type Overs = int * int
 
 type Runs = 
     | Runs of int
@@ -48,23 +48,25 @@ type BowlerDetail = {
     Maidens: int
 }
 
+type TeamName = string
+
 type Team = {
-    Name: string
+    Name: TeamName
     Players: list<Player>
 }
 
 type Innings = {
-    Balls: Ball
+    Balls: Ball list
     BattingTeam: Team
     BowlingTeam: Team
-    Score: uint16
-    Wickets: uint8
-    Over: Overs
+    Score: int
+    Wickets: int
+    Overs: Overs
     FaceBatsman: BatsmanDetail
     OtherBatsman: BatsmanDetail
     Bowler: BowlerDetail
-    BowlersList: Player list
-    BatsmenList: Player list
+    BowlersList: BowlerDetail list
+    BatsmenList: BatsmanDetail list
 }
 
 type MatchBeforeStart = {
@@ -77,8 +79,8 @@ type MatchOnFirstInnings = Innings
 type MatchOnSecondInnings = ( Innings * Innings )
 
 type MatchResult = 
-    | WonByRuns of (Team * uint16)
-    | WonByWickets of (Team * uint8)
+    | WonByRuns of (TeamName * uint16)
+    | WonByWickets of (TeamName * uint8)
     | Draw
 
 type MatchCompleted = ( Innings * Innings * MatchResult)
@@ -88,9 +90,9 @@ type Match =
     | FirstInnings of MatchOnFirstInnings 
     | SecondInnings of MatchOnSecondInnings
     | Completed of MatchCompleted
-    | None
+    | BeforeInit
 
-let mutable m : Match = None
+let mutable m : Match = BeforeInit
 
 type ScoreCommand = 
     | Runs of int 
@@ -99,6 +101,7 @@ type ScoreCommand =
 
 type Command = 
     | InitializeMatch
+    | StartMatch
     | Exit 
     | InvalidCommand 
     | Help 
@@ -149,6 +152,7 @@ let parseCommand (cmd: string) =
     | [| "wd" |] -> Wide 0 |> ScoreCommand
     | [| "wd" ; n |] -> int n |> Wide |> ScoreCommand
     | [| "init" |] -> InitializeMatch
+    | [| "start" |] -> StartMatch
     | [| "test" |] -> Test
     | _ -> InvalidCommand
 
@@ -174,18 +178,18 @@ let rec readInt label =
                         readInt label
 
 let readOptions label (options: list<'a>) : 'a =
-    let optionStr i x = sprintf "Option %d : %A" (i+1) x
-    let rec selectOption() =
+    let optionStr i x = sprintf " %d. %A" (i+1) x
+    let rec selectOption() : 'a =
         options |> List.tryItem ((readInt "Select Option") - 1)
                 |> function
-                    | Some(o) -> o
+                    | Some o -> o
                     | None -> printfn "Invalid Option"
                               selectOption()
+    printfn "\n%s : " label
     options |> List.mapi optionStr |> List.iter (printfn "%s")
-    printfn "%s : " label
     selectOption()
 
-let newBatsmanDetail (player: Player) (status: BatsmanStatus) : BatsmanDetail =
+let newBatsmanDetail (player: Player) (status: BatsmanStatus): BatsmanDetail =
         { Batsman = player; BallsFaced = 0; Runs = 0; Status = status }
 
 let newBowlerDetail (player: Player) : BowlerDetail =
@@ -211,8 +215,60 @@ let newMatch() : MatchBeforeStart =
     let overs = readInt "Overs" |> uint8
     { Overs = overs; Teams = (teamA, teamB) }
 
-let newMatchFirstInnings (x: MatchBeforeStart) : MatchOnFirstInnings
-    printfn fst(x.Teams).Name
+let errorMatchNotInit() = failwith("Match not initialized yet")
+
+let teams m =
+
+    let teamsFromInnings i = [i.BattingTeam; i.BowlingTeam]
+    match m with
+    | BeforeInit -> None
+    | BeforeStart m -> m.Teams |> fun (x, y) -> [x; y]  |> Some
+    | FirstInnings i 
+    | SecondInnings (i, _)
+    | Completed (i, _, _) -> teamsFromInnings i |> Some
+    |> function
+       | Some l -> List.sort l |> Some
+       | None -> None
+
+let otherTeam m t =
+    let other (x, y) a = if a = x then y else x
+    match m with
+    | BeforeInit -> None
+    | BeforeStart {Teams = x} -> other x t |> Some
+    | FirstInnings x
+    | SecondInnings (x, _) 
+    | Completed (x, _, _) -> other (x.BattingTeam, x.BowlingTeam) t |> Some
+
+let unwrap errorMsg (x: 'a option) : 'a =
+    match x with
+    | Some y -> y
+    | None  -> failwithf "%s" errorMsg
+
+let newMatchFirstInnings (mbs: MatchBeforeStart) : MatchOnFirstInnings =
+    let m = BeforeStart mbs
+    let teamsList = teams m |> unwrap "No teams available in the match"
+    let tossWonBy = teamsList |> List.map ( fun x -> x.Name ) |> readOptions "Who is batting first"
+    let battingTeam =  teamsList |> List.find ( fun x -> x.Name = tossWonBy )
+    let bowlingTeam = otherTeam m battingTeam
+                      |> unwrap "No teams available in the match"
+    let faceBatsman = readOptions "Face Batsman" battingTeam.Players
+    let otherBatsman = battingTeam.Players |> List.except (seq { yield faceBatsman })
+                       |> readOptions "Other Batsman"
+    let bowler = readOptions "First Bowler" bowlingTeam.Players
+
+    { 
+        BattingTeam = battingTeam; 
+        BowlingTeam = bowlingTeam;
+        FaceBatsman =  Facing |> NotOut |> newBatsmanDetail faceBatsman;
+        OtherBatsman = NotFacing |> NotOut |> newBatsmanDetail otherBatsman ;
+        Bowler = newBowlerDetail bowler;
+        Score = 0;
+        Wickets = 0;
+        Balls = [];
+        Overs = (0, 0);
+        BowlersList = [];
+        BatsmenList = [];
+    }
 
 /////////////////////////////////////////////////
 // Functions that mutate m
@@ -220,7 +276,7 @@ let newMatchFirstInnings (x: MatchBeforeStart) : MatchOnFirstInnings
      
 let initMatch () =
     match m with
-    | None -> m <- BeforeStart(newMatch())
+    | BeforeInit -> m <- BeforeStart(newMatch())
     | _ -> printfn "Already a match exists!"
 
 let startMatch () =
@@ -238,28 +294,13 @@ let oversOfInnings (innings: Innings) =
 let oversToStr (over, ball) =
     sprintf "%d.%d" over ball
 
-let scoreStr innings = 
-    sprintf "Score: %d/%d Overs: %s" innings.Runs innings.Wickets <| ( oversOfInnings >> oversToStr ) (innings)
+let scoreStr (innings: Innings) = 
+    sprintf "Score: %d/%d Overs: %s" innings.Score innings.Wickets <| ( oversOfInnings >> oversToStr ) (innings)
 
-let printStatus() =
-    match m.State with
-    | NotStarted -> printfn "Match not started yet!"
-    | FirstInnings -> printfn "%s" <| scoreStr m.FirstInnings
-    | SecondInnings -> printfn "%s" <| scoreStr m.SecondInnings
-    | Completed -> printfn "Match Finished"
-
-let printScore() =
-    match m.State with
-    | NotStarted -> printfn "Match not started yet!"
-    | FirstInnings -> printfn "%s" <| scoreStr m.FirstInnings
-    | SecondInnings -> printfn "%s" <| scoreStr m.SecondInnings
-    | Completed -> printfn "Match Finished"
 
 let prompt() =
-    match m.State with
-    | NotStarted | Completed -> ">"
-    | FirstInnings -> m.FirstInnings |> scoreStr
-    | SecondInnings -> m.SecondInnings |> scoreStr
+    match m with
+    | _ -> ">"
 
 /////////////////////////////////////////////////
 // Main Command Pattern
@@ -268,12 +309,13 @@ let prompt() =
 let processCommand cmd =
     match cmd with
     | InitializeMatch -> initMatch()
+    | StartMatch -> startMatch()
     | Exit -> Environment.Exit 0
     | Help -> printfn "No help for you!!!"
     | ScoreCommand(scoreCommand) -> () //processScoreCommand scoreCommand
-    | PrintScore -> printScore()
+    | PrintScore -> ()
     | InvalidCommand -> printfn "Invalid Command\n"
-    | Test -> readOptions "Which team you support?" [TeamA; TeamB] |> ignore
+    | Test -> ()
 
 /////////////////////////////////////////////////
 // Entry Point
@@ -283,7 +325,7 @@ let processCommand cmd =
 let main argv =
     printfn "Welcome to Cricket Console!"
     while(true) do
-        prompt() |> printfn "%s "
+        prompt() |> printf "%s "
         let cmd = Console.ReadLine().Trim()
         parseCommand cmd
         |> processCommand
