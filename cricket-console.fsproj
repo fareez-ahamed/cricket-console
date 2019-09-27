@@ -1,14 +1,14 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
-
+<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
+    <RootNamespace>cricket_console</RootNamespace>
     <OutputType>Exe</OutputType>
     <TargetFramework>netcoreapp2.2</TargetFramework>
-    <RootNamespace>cricket_console</RootNamespace>
   </PropertyGroup>
-
   <ItemGroup>
-    <Compile Include="Scoreboard.fs" />
+    <Compile Include="Util.fs" />
+    <Compile Include="Input.fs" />
+    <Compile Include="Match.fs" />
+    <Compile Include="Print.fs" />
     <Compile Include="Program.fs" />
   </ItemGroup>
-
 </Project>
